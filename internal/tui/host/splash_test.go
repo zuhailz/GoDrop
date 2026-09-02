@@ -67,4 +67,3 @@ func TestSplashDismissStillCopies(t *testing.T) {
 		}
 	}
 }
-
