@@ -242,8 +242,11 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showInput = true
 		m.input = "/"
 	case key.Matches(msg, keys.CopyID):
-		components.CopyToClipboard(m.host.RoomKey)
-		m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.host.RoomKey, Kind: components.FeedSuccess})
+		if components.CopyToClipboard(m.host.RoomKey) {
+			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.host.RoomKey, Kind: components.FeedSuccess})
+		} else {
+			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Could not confirm copy — select the key: " + m.host.RoomKey, Kind: components.FeedWarning})
+		}
 	case key.Matches(msg, keys.FeedUp):
 		if len(m.feed) > components.MaxFeedVisible && m.feedIdx < len(m.feed)-components.MaxFeedVisible {
 			m.feedIdx++

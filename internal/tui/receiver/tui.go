@@ -163,8 +163,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, keys.CopyID):
-			components.CopyToClipboard(m.roomKey)
-			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.roomKey, Kind: components.FeedSuccess})
+			if components.CopyToClipboard(m.roomKey) {
+				m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.roomKey, Kind: components.FeedSuccess})
+			} else {
+				m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Could not confirm copy — select the key: " + m.roomKey, Kind: components.FeedWarning})
+			}
 		case key.Matches(msg, keys.FeedUp):
 			if len(m.feed) > components.MaxFeedVisible && m.feedIdx < len(m.feed)-components.MaxFeedVisible {
 				m.feedIdx++

@@ -4,15 +4,59 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/zuhailz/GoDrop/internal/tui/styles"
 )
 
-func CopyToClipboard(text string) {
+// CopyToClipboard places text on the system clipboard, best-effort, and
+// reports whether delivery is confirmed. It first delegates to the platform's
+// clipboard tool (pbcopy, clip, wl-copy, xclip, xsel); if none is available it
+// falls back to the OSC 52 escape sequence, which terminals with clipboard
+// support honor -- the useful path over SSH, where a local clipboard tool
+// would write to the wrong machine. Terminals without OSC 52 support silently
+// ignore the fallback, so false means "could not confirm", not "nothing to
+// try".
+func CopyToClipboard(text string) bool {
+	if copyNative(text) {
+		return true
+	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(text))
-	// Best-effort: terminals without OSC52 support silently ignore this.
 	_, _ = fmt.Fprintf(os.Stdout, "\x1b]52;c;%s\x07", encoded)
+	return false
+}
+
+// copyNative pipes text into the platform's clipboard tool and reports
+// whether one was found and accepted the write.
+func copyNative(text string) bool {
+	var candidates [][]string
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = [][]string{{"pbcopy"}}
+	case "windows":
+		candidates = [][]string{{"clip"}}
+	case "linux", "freebsd", "openbsd", "netbsd":
+		candidates = [][]string{
+			{"wl-copy"},                          // Wayland
+			{"xclip", "-selection", "clipboard"}, // X11
+			{"xsel", "--clipboard", "--input"},   // X11
+		}
+	}
+
+	for _, args := range candidates {
+		path, err := exec.LookPath(args[0])
+		if err != nil {
+			continue
+		}
+		cmd := exec.Command(path, args[1:]...)
+		cmd.Stdin = strings.NewReader(text)
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
 }
 
 const (
