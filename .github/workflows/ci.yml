@@ -53,7 +53,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           # pinned to the release I test with locally, so CI matches what I run
           version: v2.12.2

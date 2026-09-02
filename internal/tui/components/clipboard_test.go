@@ -6,12 +6,17 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const clipboardTestString = "godrop-clipboard-test-4F8A2C61-B0D3E79A"
 
 // TestCopyToClipboardDarwin exercises the real macOS clipboard round trip.
 // It is skipped elsewhere, where no native clipboard tool is guaranteed.
+//
+// The system clipboard is process-shared, and the host splash test in another
+// package may overwrite it concurrently, so we poll for our value rather than
+// assume it stays in place.
 func TestCopyToClipboardDarwin(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("native clipboard round trip only wired up on darwin")
@@ -24,18 +29,31 @@ func TestCopyToClipboardDarwin(t *testing.T) {
 		t.Fatal("CopyToClipboard reported failure on darwin")
 	}
 
-	got, err := exec.Command("pbpaste").Output()
-	if err != nil {
-		t.Fatalf("pbpaste failed: %v", err)
-	}
-	if string(got) != clipboardTestString {
-		t.Fatalf("clipboard = %q, want %q", got, clipboardTestString)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := exec.Command("pbpaste").Output()
+		if err != nil {
+			t.Fatalf("pbpaste failed: %v", err)
+		}
+		if string(got) == clipboardTestString {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("clipboard = %q, want %q (after retrying for 5s)", got, clipboardTestString)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
 // TestCopyToClipboardWindows exercises the real Windows clipboard round trip
 // through clip.exe and reads it back with PowerShell. clip.exe ships with
 // every Windows installation, so this runs on every Windows CI job.
+//
+// The system clipboard is a global, process-shared resource: another test
+// package in the same `go test ./...` run may overwrite it between our write
+// and our read (e.g. the host splash test copies a test room key). We poll
+// for the value we wrote with a short deadline rather than assume nothing
+// else touches the clipboard.
 func TestCopyToClipboardWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows clipboard round trip only wired up on windows")
@@ -45,12 +63,19 @@ func TestCopyToClipboardWindows(t *testing.T) {
 		t.Fatal("CopyToClipboard reported failure on windows")
 	}
 
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", "Get-Clipboard").Output()
-	if err != nil {
-		t.Fatalf("Get-Clipboard failed: %v", err)
-	}
-	if got := strings.TrimSpace(string(out)); got != clipboardTestString {
-		t.Fatalf("clipboard = %q, want %q", got, clipboardTestString)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, err := exec.Command("powershell", "-NoProfile", "-Command", "Get-Clipboard").Output()
+		if err != nil {
+			t.Fatalf("Get-Clipboard failed: %v", err)
+		}
+		if strings.TrimSpace(string(out)) == clipboardTestString {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("clipboard = %q, want %q (after retrying for 5s)", strings.TrimSpace(string(out)), clipboardTestString)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

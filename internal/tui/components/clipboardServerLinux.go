@@ -136,7 +136,8 @@ func runClipboardServer(content string) int {
 	if err := xproto.SetSelectionOwnerChecked(X, win, clipboard, ts).Check(); err != nil {
 		return 1
 	}
-	if owner, err := xproto.GetSelectionOwner(X, clipboard).Reply(); err != nil || owner.Owner != win {
+	ownerReply, err := xproto.GetSelectionOwner(X, clipboard).Reply()
+	if err != nil || ownerReply == nil || ownerReply.Owner != win {
 		return 1
 	}
 
