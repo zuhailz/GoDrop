@@ -229,8 +229,11 @@ func (h *Host) verifyAuth(conn net.Conn, sharedSecret, peerPubKey []byte) error 
 
 	// Wait for the receiver's authentication tag.
 	msgType, raw, err := protocol.Unmarshal(conn)
-	if err != nil || msgType != protocol.MsgPinResponse {
-		return fmt.Errorf("expected auth response, got type %v", msgType)
+	if err != nil {
+		return fmt.Errorf("failed to read auth response: %w", err)
+	}
+	if msgType != protocol.MsgPinResponse {
+		return fmt.Errorf("expected auth response, got message type %d", msgType)
 	}
 
 	var pinResp protocol.PinResponse
@@ -415,7 +418,10 @@ func (h *Host) OfferFile(filePath string) (string, error) {
 
 	go func() {
 		for progress := range t.ProgressChan() {
-			h.progressCh <- progress
+			select {
+			case h.progressCh <- progress:
+			default:
+			}
 
 			switch progress.State {
 			case transfer.StateCompleted, transfer.StateFailed, transfer.StateDisconnected:

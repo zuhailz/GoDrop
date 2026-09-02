@@ -28,12 +28,6 @@ var (
 	SubtitleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(Muted))
 
-	HeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color(AppBg)).
-			Background(lipgloss.Color(Primary)).
-			Padding(0, 1)
-
 	PanelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(PanelEdge)).
@@ -59,11 +53,6 @@ var (
 	WarningStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(Warning))
 
-	BoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(Primary)).
-			Padding(0, 1)
-
 	ProgressBarStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(Primary))
 
@@ -80,9 +69,6 @@ var (
 	PeerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(Primary))
 
-	TransferIDStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(Warning))
-
 	FilenameStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(Text)).
 			Bold(true)
@@ -92,9 +78,6 @@ var (
 
 	StatusAcceptedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(Success))
-
-	StatusInProgressStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(Primary))
 
 	StatusCompletedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color(Success))

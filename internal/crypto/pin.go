@@ -20,8 +20,6 @@ const (
 const roomKeySep = "-"
 
 // GenerateRoomKey creates 128 bits of cryptographically random key material.
-// Use FormatRoomKey to render it as four groups of eight uppercase hex
-// characters separated by dashes, e.g. 4F8A2C61-B0D3E79A-15C6F2B8-9E3D4A07.
 func GenerateRoomKey() ([]byte, error) {
 	raw := make([]byte, roomKeyBytes)
 	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
@@ -96,8 +94,8 @@ const (
 	authInfo = "godrop-v1-pin-auth"
 )
 
-// Role labels for HMAC tags. The two sides compute different tags so a
-// replay of one side's tag can't be forwarded as the other's.
+// AuthRole labels keep the two sides' HMAC tags distinct so a replay of one
+// side's tag can't be forwarded as the other's.
 const (
 	AuthRoleHost     = "host"
 	AuthRoleReceiver = "receiver"
@@ -114,9 +112,7 @@ func DeriveAuthKey(sharedSecret, hostPub, recvPub, roomKey []byte) ([]byte, erro
 	return hkdf.Key(sha256.New, sharedSecret, salt[:], info, keySize)
 }
 
-// ComputeAuthTag returns an HMAC-SHA256 tag keyed by authKey, bound to the
-// given role ("host" or "receiver"). The two sides must compute different
-// tags so a replay of one side's tag can't be forwarded as the other.
+// ComputeAuthTag returns an HMAC tag keyed by authKey, bound to the given role.
 func ComputeAuthTag(authKey []byte, role string) []byte {
 	mac := hmac.New(sha256.New, authKey)
 	mac.Write([]byte(role))

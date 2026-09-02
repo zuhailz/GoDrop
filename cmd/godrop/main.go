@@ -11,6 +11,7 @@ import (
 	"github.com/zuhailz/GoDrop/internal/crypto"
 	"github.com/zuhailz/GoDrop/internal/host"
 	"github.com/zuhailz/GoDrop/internal/receiver"
+	"github.com/zuhailz/GoDrop/internal/tui/components"
 	hostTUI "github.com/zuhailz/GoDrop/internal/tui/host"
 	receiverTUI "github.com/zuhailz/GoDrop/internal/tui/receiver"
 )
@@ -55,6 +56,12 @@ func init() {
 }
 
 func main() {
+	// On linux, this binary is re-invoked as a detached clipboard owner for
+	// the room-key copy feature (see components.CopyToClipboard). It exits
+	// here before anything else when GODROP_CLIPBOARD_SERVER is set.
+	if code := components.RunClipboardServerIfRequested(); code >= 0 {
+		os.Exit(code)
+	}
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

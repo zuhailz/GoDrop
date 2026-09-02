@@ -54,29 +54,33 @@ func TestCopyToClipboardWindows(t *testing.T) {
 	}
 }
 
-// TestCopyToClipboardLinuxX11 exercises the real Linux clipboard round trip
-// through xclip. It needs an X display (CI runs the suite under Xvfb) and
-// xclip installed; both are provisioned by the workflow on Linux jobs.
-func TestCopyToClipboardLinuxX11(t *testing.T) {
+// TestCopyToClipboardLinuxX11Server exercises the in-process X11 clipboard
+// owner: the copy must confirm ownership without any external clipboard
+// tool, and the content must be readable back through the standard X11
+// selection protocol. Needs an X display; CI runs the linux suite under
+// Xvfb. Read-back uses xclip when it happens to be installed.
+func TestCopyToClipboardLinuxX11Server(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("linux clipboard round trip only wired up on linux")
+		t.Skip("x11 clipboard server only wired up on linux")
 	}
 	if os.Getenv("DISPLAY") == "" {
 		t.Skip("no X display; CI runs the linux suite under Xvfb")
 	}
+
+	want := "godrop-x11-server-clipboard-test"
+	if !copyViaX11Server(want) {
+		t.Fatal("x11 server copy did not confirm ownership")
+	}
+
 	if _, err := exec.LookPath("xclip"); err != nil {
-		t.Skip("xclip not installed")
+		t.Log("xclip not installed; ownership confirmed, skipping read-back")
+		return
 	}
-
-	if !CopyToClipboard(clipboardTestString) {
-		t.Fatal("CopyToClipboard reported failure on linux")
-	}
-
 	out, err := exec.Command("xclip", "-selection", "clipboard", "-o").Output()
 	if err != nil {
 		t.Fatalf("xclip read-back failed: %v", err)
 	}
-	if got := strings.TrimSpace(string(out)); got != clipboardTestString {
-		t.Fatalf("clipboard = %q, want %q", got, clipboardTestString)
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("clipboard = %q, want %q", got, want)
 	}
 }

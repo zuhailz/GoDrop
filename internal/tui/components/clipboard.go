@@ -11,16 +11,29 @@ import (
 	"github.com/zuhailz/GoDrop/internal/tui/styles"
 )
 
+// clipboardVerifyCmds maps clipboard copy tools to their read-back counterparts.
+// After a successful copy on Linux we run the matching verify command and
+// compare the output to the original text so we can report real success.
+var clipboardVerifyCmds = map[string][]string{
+	"wl-copy": {"wl-paste", "--no-newline"},
+	"xclip":   {"xclip", "-selection", "clipboard", "-o"},
+	"xsel":    {"xsel", "--clipboard", "--output"},
+}
+
 // CopyToClipboard places text on the system clipboard, best-effort, and
-// reports whether delivery is confirmed. It first delegates to the platform's
-// clipboard tool (pbcopy, clip, wl-copy, xclip, xsel); if none is available it
-// falls back to the OSC 52 escape sequence, which terminals with clipboard
-// support honor -- the useful path over SSH, where a local clipboard tool
-// would write to the wrong machine. Terminals without OSC 52 support silently
-// ignore the fallback, so false means "could not confirm", not "nothing to
-// try".
+// reports whether delivery is confirmed. It tries, in order: the platform's
+// clipboard tool (pbcopy, clip, wl-copy, xclip, xsel); an in-process X11
+// clipboard owner handed off to a detached helper on linux, which needs no
+// external tools; and finally the OSC 52 escape sequence, which terminals
+// with clipboard support honor -- the useful path over SSH, where a local
+// clipboard tool would write to the wrong machine. Terminals without OSC 52
+// support silently ignore the fallback, so false means "could not confirm",
+// not "nothing to try".
 func CopyToClipboard(text string) bool {
 	if copyNative(text) {
+		return true
+	}
+	if copyViaX11Server(text) {
 		return true
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(text))
@@ -28,8 +41,26 @@ func CopyToClipboard(text string) bool {
 	return false
 }
 
+const (
+	clipboardServerEnv  = "GODROP_CLIPBOARD_SERVER"
+	clipboardContentEnv = "GODROP_CLIPBOARD_CONTENT"
+)
+
+// RunClipboardServerIfRequested runs the detached clipboard helper when the
+// environment asks for it, and reports the exit code the process should use;
+// -1 means "not requested", so the caller proceeds normally. See
+// copyViaX11Server for why this exists.
+func RunClipboardServerIfRequested() int {
+	if os.Getenv(clipboardServerEnv) != "1" {
+		return -1
+	}
+	return runClipboardServer(os.Getenv(clipboardContentEnv))
+}
+
 // copyNative pipes text into the platform's clipboard tool and reports
-// whether one was found and accepted the write.
+// whether one was found and accepted the write. On Linux it additionally
+// verifies the clipboard contains the expected text, because tools like
+// wl-copy can succeed silently when no compositor is running.
 func copyNative(text string) bool {
 	var candidates [][]string
 	switch runtime.GOOS {
@@ -52,16 +83,26 @@ func copyNative(text string) bool {
 		}
 		cmd := exec.Command(path, args[1:]...)
 		cmd.Stdin = strings.NewReader(text)
-		if cmd.Run() == nil {
-			return true
+		if cmd.Run() != nil {
+			continue
 		}
+		// On Linux, verify the clipboard actually contains the text.
+		if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" ||
+			runtime.GOOS == "openbsd" || runtime.GOOS == "netbsd" {
+			if verifyCmd, ok := clipboardVerifyCmds[args[0]]; ok {
+				out, err := exec.Command(verifyCmd[0], verifyCmd[1:]...).Output()
+				if err != nil || strings.TrimSpace(string(out)) != text {
+					continue
+				}
+			}
+		}
+		return true
 	}
 	return false
 }
 
 const (
 	MaxFeedVisible = 8
-	MaxFeedTextLen = 300
 )
 
 type FeedKind int
@@ -74,9 +115,8 @@ const (
 )
 
 type FeedItem struct {
-	Text  string
-	Event bool
-	Kind  FeedKind
+	Text string
+	Kind FeedKind
 }
 
 func RenderFeedEvent(item FeedItem) string {
@@ -92,28 +132,4 @@ func RenderFeedEvent(item FeedItem) string {
 		rendered = styles.NormalItemStyle.Render("  • " + item.Text)
 	}
 	return rendered + "\n"
-}
-
-func SanitizeText(s string, maxLen int) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-
-	var b strings.Builder
-	for _, r := range s {
-		if r == '\n' || r == '\t' {
-			b.WriteRune(r)
-			continue
-		}
-		if r < 0x20 || r == 0x7f {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	s = b.String()
-
-	runes := []rune(s)
-	if len(runes) > maxLen {
-		s = string(runes[:maxLen]) + "…"
-	}
-	return s
 }

@@ -102,7 +102,10 @@ func (r *HostResolver) query(disableV4, disableV6 bool) (string, int, error) {
 
 	for {
 		select {
-		case entry := <-entriesCh:
+		case entry, ok := <-entriesCh:
+			if !ok || entry == nil {
+				continue
+			}
 			if entry.Name == target {
 				addr := entry.AddrV4
 				if addr == nil && entry.AddrV6IPAddr != nil {
