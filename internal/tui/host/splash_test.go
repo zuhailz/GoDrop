@@ -8,11 +8,17 @@ import (
 	"github.com/zuhailz/GoDrop/internal/host"
 )
 
-// TestSplashDismissStillCopies verifies the documented behavior that "c"
-// copies on the very first keypress, even while the splash is up, and that
-// any other first keypress merely dismisses the splash.
+const testRoomKey = "AAAA1111-BBBB2222-CCCC3333-DDDD4444"
+
+// TestSplashDismissStillCopies verifies that "c" reaches the copy path on the
+// very first keypress, while the splash is still up. Whether the copy itself
+// is then confirmed depends on the platform: darwin has pbcopy, while a CI
+// Linux box may have no clipboard tool at all -- there the feed honestly
+// reports that the copy could not be confirmed. Either outcome proves the
+// keypress reached the copy path; no outcome at all is the regression this
+// test guards against.
 func TestSplashDismissStillCopies(t *testing.T) {
-	h, err := host.NewHost(nil, "AAAA1111-BBBB2222-CCCC3333-DDDD4444", "testhost")
+	h, err := host.NewHost(nil, testRoomKey, "testhost")
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
@@ -29,18 +35,25 @@ func TestSplashDismissStillCopies(t *testing.T) {
 	if m.splash {
 		t.Error("splash should be dismissed by the c keypress")
 	}
-	found := false
+
+	var copied, reported bool
 	for _, item := range m.feed {
 		if strings.Contains(item.Text, "Copied room key") {
-			found = true
+			copied = true
+		}
+		if strings.Contains(item.Text, "Could not confirm copy") {
+			reported = true
 		}
 	}
-	if !found {
-		t.Error("c during splash did not record a copy in the feed")
+	if copied == reported {
+		t.Errorf("c during splash must produce exactly one copy outcome (copied=%v, reported=%v)", copied, reported)
 	}
 
-	// A non-c first keypress must only dismiss the splash.
-	h2, _ := host.NewHost(nil, "EEEE5555-FFFF6666-AAAA7777-BBBB8888", "testhost2")
+	// A non-c first keypress must only dismiss the splash, never copy.
+	h2, err := host.NewHost(nil, "EEEE5555-FFFF6666-AAAA7777-BBBB8888", "testhost2")
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
 	m2 := NewModel(h2)
 	xKey := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
 	updated2, _ := m2.Update(xKey)
@@ -49,8 +62,9 @@ func TestSplashDismissStillCopies(t *testing.T) {
 		t.Error("splash should be dismissed by any keypress")
 	}
 	for _, item := range m2.feed {
-		if strings.Contains(item.Text, "Copied room key") {
-			t.Error("x keypress must not record a copy")
+		if strings.Contains(item.Text, "Copied room key") || strings.Contains(item.Text, "Could not confirm copy") {
+			t.Error("x keypress must not reach the copy path")
 		}
 	}
 }
+
