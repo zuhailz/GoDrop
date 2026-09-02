@@ -32,11 +32,13 @@ func createArchive(dirPath string) (string, error) {
 		}
 
 		if info.IsDir() {
-			_, err = zw.Create(rel + "/")
+			// Zip entry names must use forward slashes regardless of the host
+			// OS; receivers parse them with "/".
+			_, err = zw.Create(filepath.ToSlash(rel) + "/")
 			return err
 		}
 
-		w, err := zw.Create(rel)
+		w, err := zw.Create(filepath.ToSlash(rel))
 		if err != nil {
 			return err
 		}

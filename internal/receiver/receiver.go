@@ -327,12 +327,20 @@ func (r *Receiver) handleFileOffer(offer protocol.FileOffer) {
 
 func sanitizeFilename(name string) string {
 	name = strings.TrimSpace(name)
+	// Reject Windows path syntax before any platform-dependent processing.
+	// filepath.Base treats "\\" as a separator only on Windows, which would
+	// make this function silently strip traversal (e.g. "..\\..\\x" -> "x")
+	// on Windows while rejecting it elsewhere. A filename containing a
+	// backslash or NUL is never legitimate, on any OS.
+	if strings.ContainsRune(name, '\\') || strings.ContainsRune(name, 0) {
+		return ""
+	}
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." {
 		return ""
 	}
-	if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+	if strings.ContainsRune(name, '/') {
 		return ""
 	}
 	return name

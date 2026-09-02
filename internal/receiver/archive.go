@@ -19,7 +19,17 @@ func extractFolder(src, dest, targetName string) error {
 	root := filepath.Join(filepath.Clean(dest), targetName)
 
 	for _, f := range r.File {
-		_, rel, ok := strings.Cut(f.Name, "/")
+		// The zip spec requires forward slashes in entry names, but tolerate
+		// senders that wrote native separators (e.g. Windows backslashes):
+		// normalize first so parsing and the traversal check below behave
+		// identically on every OS.
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		// Directory entries end with "/" after normalization; do not rely on
+		// FileInfo().IsDir(), which inspects the raw name and misclassifies
+		// backslash-terminated entries as files.
+		isDir := strings.HasSuffix(name, "/")
+
+		_, rel, ok := strings.Cut(name, "/")
 		if !ok || rel == "" {
 			continue
 		}
@@ -31,7 +41,7 @@ func extractFolder(src, dest, targetName string) error {
 
 		fpath := filepath.Join(root, cleanRel)
 
-		if f.FileInfo().IsDir() {
+		if isDir {
 			if err := os.MkdirAll(fpath, 0o755); err != nil {
 				return err
 			}
