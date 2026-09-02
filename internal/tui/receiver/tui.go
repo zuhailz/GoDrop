@@ -157,7 +157,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.splash = false
-			return m, nil
+			// "c" must copy from the very first keypress; any other key just
+			// dismisses the splash.
+			if !key.Matches(msg, keys.CopyID) {
+				return m, nil
+			}
 		}
 		switch {
 		case key.Matches(msg, keys.Quit):

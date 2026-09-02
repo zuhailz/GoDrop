@@ -142,7 +142,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.splash {
 			m.splash = false
-			return m, nil
+			// "c" (copy) and "q" (quit) stay live during the splash; any
+			// other key just dismisses it.
+			if !key.Matches(msg, keys.CopyID) && !key.Matches(msg, keys.Quit) {
+				return m, nil
+			}
 		}
 		return m.handleKeyMsg(msg)
 
