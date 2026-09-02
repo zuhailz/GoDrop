@@ -18,6 +18,10 @@ func TestSanitizeFilename(t *testing.T) {
 		{name: "whitespace only", in: "   ", want: ""},
 		{name: "windows separators rejected", in: `..\..\x`, want: ""},
 		{name: "windows absolute rejected", in: `C:\Users\x\f.txt`, want: ""},
+		{name: "root separator rejected", in: "/", want: ""},
+		{name: "all separators rejected", in: "///", want: ""},
+		{name: "windows drive rejected", in: "C:", want: ""},
+		{name: "colon rejected", in: "foo:bar", want: ""},
 		{name: "nul byte rejected", in: "foo\x00bar", want: ""},
 		{name: "padded name trimmed", in: "  report.pdf  ", want: "report.pdf"},
 	}

@@ -8,8 +8,14 @@ import (
 	"testing"
 )
 
-// writeTestZip builds a zip file with the given name->content entries.
-func writeTestZip(t *testing.T, entries map[string]string) string {
+// zipEntry is one archive entry; a slice keeps entry order deterministic.
+type zipEntry struct {
+	name    string
+	content string
+}
+
+// writeTestZip builds a zip file with the given entries, in order.
+func writeTestZip(t *testing.T, entries []zipEntry) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.zip")
 	f, err := os.Create(path)
@@ -18,13 +24,13 @@ func writeTestZip(t *testing.T, entries map[string]string) string {
 	}
 
 	zw := zip.NewWriter(f)
-	for name, content := range entries {
-		w, err := zw.Create(name)
+	for _, e := range entries {
+		w, err := zw.Create(e.name)
 		if err != nil {
-			t.Fatalf("create entry %q: %v", name, err)
+			t.Fatalf("create entry %q: %v", e.name, err)
 		}
-		if _, err := w.Write([]byte(content)); err != nil {
-			t.Fatalf("write entry %q: %v", name, err)
+		if _, err := w.Write([]byte(e.content)); err != nil {
+			t.Fatalf("write entry %q: %v", e.name, err)
 		}
 	}
 
@@ -41,11 +47,11 @@ func writeTestZip(t *testing.T, entries map[string]string) string {
 // archive was written with forward slashes (spec) or backslashes (a Windows
 // sender predating the fix). This must hold on every OS, not just Windows.
 func TestExtractFolderMixedSeparators(t *testing.T) {
-	src := writeTestZip(t, map[string]string{
-		"myfolder/":          "",
-		"myfolder/a.txt":     "alpha content here",
-		`myfolder\sub\`:      "",
-		"myfolder/sub/b.txt": "beta content",
+	src := writeTestZip(t, []zipEntry{
+		{"myfolder/", ""},
+		{"myfolder/a.txt", "alpha content here"},
+		{`myfolder\sub\`, ""},
+		{"myfolder/sub/b.txt", "beta content"},
 	})
 
 	dest := t.TempDir()
@@ -71,7 +77,7 @@ func TestExtractFolderRejectsTraversal(t *testing.T) {
 		"myfolder/../../evil.txt",
 		`myfolder\..\..\evil.txt`,
 	} {
-		src := writeTestZip(t, map[string]string{entry: "evil"})
+		src := writeTestZip(t, []zipEntry{{entry, "evil"}})
 		dest := t.TempDir()
 
 		if err := extractFolder(src, dest, "myfolder"); err == nil {

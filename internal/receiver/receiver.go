@@ -327,20 +327,20 @@ func (r *Receiver) handleFileOffer(offer protocol.FileOffer) {
 
 func sanitizeFilename(name string) string {
 	name = strings.TrimSpace(name)
-	// Reject Windows path syntax before any platform-dependent processing.
-	// filepath.Base treats "\\" as a separator only on Windows, which would
-	// make this function silently strip traversal (e.g. "..\\..\\x" -> "x")
-	// on Windows while rejecting it elsewhere. A filename containing a
-	// backslash or NUL is never legitimate, on any OS.
-	if strings.ContainsRune(name, '\\') || strings.ContainsRune(name, 0) {
+	// Reject characters that are unsafe on some platform before any
+	// platform-dependent processing: backslash is a separator on Windows,
+	// colon is illegal in Windows filenames and drive-relative there.
+	// filepath.Base strips "\\" only on Windows, so stripping first would
+	// make this function behave differently per OS (e.g. "..\\..\\x" would
+	// become "x" on Windows while being rejected elsewhere).
+	if strings.ContainsAny(name, `\:`) || strings.ContainsRune(name, 0) {
 		return ""
 	}
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." {
-		return ""
-	}
-	if strings.ContainsRune(name, '/') {
+	// Base returns a bare separator for all-separator input ("/" -> "/" on
+	// Unix, "\\" on Windows), so test both separators on the result.
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
 		return ""
 	}
 	return name
