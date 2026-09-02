@@ -258,6 +258,21 @@ Receiver:
 
 ## Troubleshooting
 
+**Room key copy does nothing on Linux.**
+On Linux the copy goes through `wl-copy` (Wayland) or `xclip`/`xsel` (X11),
+and a fresh Ubuntu has neither preinstalled:
+
+```bash
+sudo apt install xclip         # X11 sessions
+sudo apt install wl-clipboard  # Wayland sessions
+```
+
+Without one of them, GoDrop falls back to the OSC 52 escape sequence, which
+some terminals honor and others -- including Ubuntu's default GNOME Terminal,
+historically -- ignore. The feed tells you when a copy could not be
+confirmed, and the room key is always shown inline on screen, so selecting
+and copying it manually always works.
+
 **Receiver says "host not found".**
 mDNS needs multicast, and guest Wi-Fi, AP isolation, hotel and corporate
 networks commonly block it. Put both machines on the same ordinary network,
