@@ -101,7 +101,7 @@ func TestReadChunks(t *testing.T) {
 	}
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
-	testData := make([]byte, 50*1024)
+	testData := make([]byte, protocol.ChunkSize+100)
 	for i := range testData {
 		testData[i] = byte(i % 256)
 	}
@@ -262,5 +262,74 @@ func TestGenerateTransferID(t *testing.T) {
 
 	if len(id1) != 16 {
 		t.Errorf("transfer ID length = %d, want 16", len(id1))
+	}
+}
+
+func TestBinaryChunkCodecRoundTrip(t *testing.T) {
+	cases := []struct {
+		name   string
+		chunk  protocol.Chunk
+	}{
+		{
+			name: "small",
+			chunk: protocol.Chunk{
+				TransferID: "abcdef0123456789",
+				Offset:     0,
+				Data:       []byte("hello world"),
+				Checksum:   crc32.ChecksumIEEE([]byte("hello world")),
+			},
+		},
+		{
+			name: "large_offset",
+			chunk: protocol.Chunk{
+				TransferID: "aabbccdd11223344",
+				Offset:     123456789,
+				Data:       make([]byte, protocol.ChunkSize),
+				Checksum:   0xDEADBEEF,
+			},
+		},
+		{
+			name: "max_values",
+			chunk: protocol.Chunk{
+				TransferID: "FFFFFFFFFFFFFFFF",
+				Offset:     1<<63 - 1,
+				Data:       make([]byte, 1),
+				Checksum:   0xFFFFFFFF,
+			},
+		},
+		{
+			name: "empty_data",
+			chunk: protocol.Chunk{
+				TransferID: "0000000000000000",
+				Offset:     42,
+				Data:       []byte{},
+				Checksum:   12345,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blob, err := marshalChunkBody(tc.chunk)
+			if err != nil {
+				t.Fatalf("marshalChunkBody failed: %v", err)
+			}
+			got, err := DecodeChunkBlob(blob)
+			if err != nil {
+				t.Fatalf("DecodeChunkBlob failed: %v", err)
+			}
+			if got.TransferID != tc.chunk.TransferID {
+				t.Errorf("TransferID = %q, want %q", got.TransferID, tc.chunk.TransferID)
+			}
+			if got.Offset != tc.chunk.Offset {
+				t.Errorf("Offset = %d, want %d", got.Offset, tc.chunk.Offset)
+			}
+			if got.Checksum != tc.chunk.Checksum {
+				t.Errorf("Checksum = %d, want %d", got.Checksum, tc.chunk.Checksum)
+			}
+			if !bytes.Equal(got.Data, tc.chunk.Data) {
+				t.Errorf("Data length = %d, want %d", len(got.Data), len(tc.chunk.Data))
+			}
+		})
 	}
 }

@@ -23,7 +23,7 @@ const (
 	MsgPinChallenge    MessageType = 11
 )
 
-const ChunkSize = 32 * 1024
+const ChunkSize = 256 * 1024
 
 type KeyExchange struct {
 	PublicKey []byte `json:"public_key"`

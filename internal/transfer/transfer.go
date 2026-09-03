@@ -1,8 +1,10 @@
 package transfer
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"hash/crc32"
@@ -204,12 +206,20 @@ func (t *Transfer) ReadChunks() (<-chan protocol.Chunk, <-chan error) {
 func (t *Transfer) SendToPeer(peerID string, writer io.Writer, encryptor func([]byte) ([]byte, error)) error {
 	t.SetState(peerID, StateInProgress)
 
+	// Coalesce the type/length/payload writes for each frame into a single
+	// underlying Write instead of three syscalls per chunk.
+	bw := bufio.NewWriterSize(writer, 256*1024)
+
 	chunkCh, errCh := t.ReadChunks()
 
 	for {
 		select {
 		case chunk, ok := <-chunkCh:
 			if !ok {
+				if err := bw.Flush(); err != nil {
+					t.SetState(peerID, StateFailed)
+					return err
+				}
 				t.SetState(peerID, StateCompleted)
 				return nil
 			}
@@ -226,20 +236,24 @@ func (t *Transfer) SendToPeer(peerID string, writer io.Writer, encryptor func([]
 				return err
 			}
 
-			encPacket := protocol.EncryptedPacket{Data: encrypted}
-			if err := protocol.Marshal(writer, protocol.MsgEncryptedPacket, encPacket); err != nil {
+			if err := protocol.MarshalRaw(bw, protocol.MsgEncryptedPacket, encrypted); err != nil {
 				t.SetState(peerID, StateFailed)
 				return err
 			}
 
 			t.UpdateOffset(peerID, chunk.Offset+int64(len(chunk.Data)))
 
-			t.progressCh <- PeerProgress{
+			// Progress is a best-effort signal for the UI: never let a
+			// slow consumer stall the transfer hot loop.
+			select {
+			case t.progressCh <- PeerProgress{
 				PeerID:     peerID,
 				TransferID: t.TransferID,
 				Offset:     chunk.Offset + int64(len(chunk.Data)),
 				Total:      t.FileSize,
 				State:      StateInProgress,
+			}:
+			default:
 			}
 
 		case err := <-errCh:
@@ -269,11 +283,66 @@ func generateTransferID() (string, error) {
 }
 
 func encodeChunk(chunk protocol.Chunk) ([]byte, error) {
+	blob, err := marshalChunkBody(chunk)
+	if err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
-	if err := protocol.Marshal(&buf, protocol.MsgChunk, chunk); err != nil {
+	if err := protocol.MarshalRaw(&buf, protocol.MsgChunk, blob); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func marshalChunkBody(chunk protocol.Chunk) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.BigEndian, byte(len(chunk.TransferID))); err != nil {
+		return nil, err
+	}
+	buf.WriteString(chunk.TransferID)
+	if err := binary.Write(&buf, binary.BigEndian, chunk.Offset); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(chunk.Data))); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, chunk.Checksum); err != nil {
+		return nil, err
+	}
+	buf.Write(chunk.Data)
+	return buf.Bytes(), nil
+}
+
+// DecodeChunkBlob decodes the binary form written by marshalChunkBody.
+func DecodeChunkBlob(blob []byte) (protocol.Chunk, error) {
+	var chunk protocol.Chunk
+	r := bytes.NewReader(blob)
+
+	var idLen byte
+	if err := binary.Read(r, binary.BigEndian, &idLen); err != nil {
+		return chunk, err
+	}
+	id := make([]byte, idLen)
+	if _, err := io.ReadFull(r, id); err != nil {
+		return chunk, err
+	}
+	chunk.TransferID = string(id)
+
+	if err := binary.Read(r, binary.BigEndian, &chunk.Offset); err != nil {
+		return chunk, err
+	}
+	var dataLen uint32
+	if err := binary.Read(r, binary.BigEndian, &dataLen); err != nil {
+		return chunk, err
+	}
+	if err := binary.Read(r, binary.BigEndian, &chunk.Checksum); err != nil {
+		return chunk, err
+	}
+	chunk.Data = make([]byte, dataLen)
+	if _, err := io.ReadFull(r, chunk.Data); err != nil {
+		return chunk, err
+	}
+	return chunk, nil
 }
 
 func WriteChunkToFile(chunk protocol.Chunk, file *os.File) error {
