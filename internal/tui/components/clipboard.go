@@ -41,22 +41,6 @@ func CopyToClipboard(text string) bool {
 	return false
 }
 
-const (
-	clipboardServerEnv  = "GODROP_CLIPBOARD_SERVER"
-	clipboardContentEnv = "GODROP_CLIPBOARD_CONTENT"
-)
-
-// RunClipboardServerIfRequested runs the detached clipboard helper when the
-// environment asks for it, and reports the exit code the process should use;
-// -1 means "not requested", so the caller proceeds normally. See
-// copyViaX11Server for why this exists.
-func RunClipboardServerIfRequested() int {
-	if os.Getenv(clipboardServerEnv) != "1" {
-		return -1
-	}
-	return runClipboardServer(os.Getenv(clipboardContentEnv))
-}
-
 // copyNative pipes text into the platform's clipboard tool and reports
 // whether one was found and accepted the write. On Linux it additionally
 // verifies the clipboard contains the expected text, because tools like

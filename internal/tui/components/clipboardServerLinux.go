@@ -13,6 +13,22 @@ import (
 	"github.com/jezek/xgb/xproto"
 )
 
+const (
+	clipboardServerEnv  = "GODROP_CLIPBOARD_SERVER"
+	clipboardContentEnv = "GODROP_CLIPBOARD_CONTENT"
+)
+
+// RunClipboardServerIfRequested runs the detached clipboard helper when the
+// environment asks for it, and reports the exit code the process should use;
+// -1 means "not requested", so the caller proceeds normally. See
+// copyViaX11Server for why this exists.
+func RunClipboardServerIfRequested() int {
+	if os.Getenv(clipboardServerEnv) != "1" {
+		return -1
+	}
+	return runClipboardServer(os.Getenv(clipboardContentEnv))
+}
+
 // copyViaX11Server hands the text to a detached copy of this binary that
 // takes ownership of the X11 CLIPBOARD selection and serves paste requests
 // for as long as it stays the owner -- the xclip architecture, in-process,
@@ -42,11 +58,11 @@ func copyViaX11Server(text string) bool {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // outlive the session
 
 	if err := cmd.Start(); err != nil {
-		reader.Close()
-		writer.Close()
+		_ = reader.Close()
+		_ = writer.Close()
 		return false
 	}
-	writer.Close() // the child now holds the only writer end
+	_ = writer.Close() // the child now holds the only writer end
 
 	okCh := make(chan bool, 1)
 	go func() {
@@ -58,10 +74,10 @@ func copyViaX11Server(text string) bool {
 	var ok bool
 	select {
 	case ok = <-okCh:
-		reader.Close()
+		_ = reader.Close()
 	case <-time.After(3 * time.Second):
 		_ = cmd.Process.Kill()
-		reader.Close()
+		_ = reader.Close()
 		return false
 	}
 	if ok {

@@ -25,12 +25,11 @@ func TestCopyToClipboardDarwin(t *testing.T) {
 		t.Skip("pbcopy not available")
 	}
 
-	if !CopyToClipboard(clipboardTestString) {
-		t.Fatal("CopyToClipboard reported failure on darwin")
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
+		if !CopyToClipboard(clipboardTestString) {
+			t.Fatal("CopyToClipboard reported failure on darwin")
+		}
 		got, err := exec.Command("pbpaste").Output()
 		if err != nil {
 			t.Fatalf("pbpaste failed: %v", err)
@@ -39,9 +38,9 @@ func TestCopyToClipboardDarwin(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("clipboard = %q, want %q (after retrying for 5s)", got, clipboardTestString)
+			t.Fatalf("clipboard kept changing, never observed %q (last %q)", clipboardTestString, got)
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -50,21 +49,19 @@ func TestCopyToClipboardDarwin(t *testing.T) {
 // every Windows installation, so this runs on every Windows CI job.
 //
 // The system clipboard is a global, process-shared resource: another test
-// package in the same `go test ./...` run may overwrite it between our write
-// and our read (e.g. the host splash test copies a test room key). We poll
-// for the value we wrote with a short deadline rather than assume nothing
-// else touches the clipboard.
+// package in the same `go test ./...` run (the host splash test) overwrites
+// it concurrently. So we keep re-writing and re-reading until our value wins
+// a race, rather than assume the clipboard stays put.
 func TestCopyToClipboardWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows clipboard round trip only wired up on windows")
 	}
 
-	if !CopyToClipboard(clipboardTestString) {
-		t.Fatal("CopyToClipboard reported failure on windows")
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
+		if !CopyToClipboard(clipboardTestString) {
+			t.Fatal("CopyToClipboard reported failure on windows")
+		}
 		out, err := exec.Command("powershell", "-NoProfile", "-Command", "Get-Clipboard").Output()
 		if err != nil {
 			t.Fatalf("Get-Clipboard failed: %v", err)
@@ -73,9 +70,9 @@ func TestCopyToClipboardWindows(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("clipboard = %q, want %q (after retrying for 5s)", strings.TrimSpace(string(out)), clipboardTestString)
+			t.Fatalf("clipboard kept changing, never observed %q (last %q)", clipboardTestString, strings.TrimSpace(string(out)))
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
