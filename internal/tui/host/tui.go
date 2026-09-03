@@ -86,9 +86,8 @@ func NewModel(h *host.Host) model {
 		splash:    true,
 		transfers: make([]transfer.PeerProgress, 0),
 		feed: []components.FeedItem{{
-			Event: true,
-			Text:  fmt.Sprintf("Room key: %s (press c to copy)", h.RoomKey),
-			Kind:  components.FeedSuccess,
+			Text: fmt.Sprintf("Room key: %s (press c to copy)", h.RoomKey),
+			Kind: components.FeedSuccess,
 		}},
 		transferNames: make(map[string]string),
 		browserDir:    dir,
@@ -142,7 +141,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.splash {
 			m.splash = false
-			return m, nil
+			// "c" (copy) and "q" (quit) stay live during the splash; any
+			// other key just dismisses it.
+			if !key.Matches(msg, keys.CopyID) && !key.Matches(msg, keys.Quit) {
+				return m, nil
+			}
 		}
 		return m.handleKeyMsg(msg)
 
@@ -202,7 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.splash {
 			m.splash = false
 		}
-		m.feed = append(m.feed, components.FeedItem{Event: true, Text: msg.Event.Text, Kind: components.FeedNeutral})
+		m.feed = append(m.feed, components.FeedItem{Text: msg.Event.Text, Kind: components.FeedNeutral})
 		return m, waitForSystemEvent(m.host.SystemEventChan())
 
 	case SendFileMsg:
@@ -210,7 +213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			transferID, err := m.host.OfferFile(msg.Path)
 			if err != nil {
 				m.err = err
-				m.feed = append(m.feed, components.FeedItem{Event: true, Text: fmt.Sprintf("Failed to offer %s: %v", filepath.Base(msg.Path), err), Kind: components.FeedError})
+				m.feed = append(m.feed, components.FeedItem{Text: fmt.Sprintf("Failed to offer %s: %v", filepath.Base(msg.Path), err), Kind: components.FeedError})
 			} else {
 				m.transferNames[transferID] = filepath.Base(msg.Path)
 			}
@@ -242,8 +245,11 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showInput = true
 		m.input = "/"
 	case key.Matches(msg, keys.CopyID):
-		components.CopyToClipboard(m.host.RoomKey)
-		m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.host.RoomKey, Kind: components.FeedSuccess})
+		if components.CopyToClipboard(m.host.RoomKey) {
+			m.feed = append(m.feed, components.FeedItem{Text: "Copied room key: " + m.host.RoomKey, Kind: components.FeedSuccess})
+		} else {
+			m.feed = append(m.feed, components.FeedItem{Text: "Could not confirm copy — select the key: " + m.host.RoomKey, Kind: components.FeedWarning})
+		}
 	case key.Matches(msg, keys.FeedUp):
 		if len(m.feed) > components.MaxFeedVisible && m.feedIdx < len(m.feed)-components.MaxFeedVisible {
 			m.feedIdx++
@@ -300,7 +306,7 @@ func (m model) submitCommand() (tea.Model, tea.Cmd) {
 		transferID, err := m.host.OfferFile(path)
 		if err != nil {
 			m.err = err
-			m.feed = append(m.feed, components.FeedItem{Event: true, Text: fmt.Sprintf("Failed to offer %s: %v", path, err), Kind: components.FeedError})
+			m.feed = append(m.feed, components.FeedItem{Text: fmt.Sprintf("Failed to offer %s: %v", path, err), Kind: components.FeedError})
 		} else {
 			m.transferNames[transferID] = filepath.Base(path)
 		}
@@ -314,20 +320,19 @@ func (m model) submitCommand() (tea.Model, tea.Cmd) {
 	case parts[0] == "/peers":
 		names := m.host.Peers()
 		if len(names) == 0 {
-			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "No peers connected"})
+			m.feed = append(m.feed, components.FeedItem{Text: "No peers connected"})
 		} else {
-			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Connected peers: " + strings.Join(names, ", "), Kind: components.FeedSuccess})
+			m.feed = append(m.feed, components.FeedItem{Text: "Connected peers: " + strings.Join(names, ", "), Kind: components.FeedSuccess})
 		}
 
 	case parts[0] == "/help":
 		m.feed = append(m.feed, components.FeedItem{
-			Event: true,
-			Text:  "/send <path>  •  /peers  •  /exit  •  /help",
-			Kind:  components.FeedSuccess,
+			Text: "/send <path>  •  /peers  •  /exit  •  /help",
+			Kind: components.FeedSuccess,
 		})
 
 	default:
-		m.feed = append(m.feed, components.FeedItem{Event: true, Text: fmt.Sprintf("Unknown command: %s (try /help)", parts[0]), Kind: components.FeedError})
+		m.feed = append(m.feed, components.FeedItem{Text: fmt.Sprintf("Unknown command: %s (try /help)", parts[0]), Kind: components.FeedError})
 	}
 
 	return m, nil

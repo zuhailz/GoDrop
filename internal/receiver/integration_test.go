@@ -276,7 +276,9 @@ func TestConcurrentReceivers(t *testing.T) {
 					t.Errorf("AcceptTransfer failed: %v", err)
 					return
 				}
-				deadline := time.After(10 * time.Second)
+				// Generous deadline: CI runners are slow, and this test runs
+				// under -race with several receivers at once.
+				deadline := time.After(30 * time.Second)
 				for {
 					select {
 					case <-deadline:

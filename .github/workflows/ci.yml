@@ -32,7 +32,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Install Linux clipboard tool
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xclip
+
+      - name: Test (Linux, under Xvfb for the clipboard round trip)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a go test ./... -race -timeout 120s
+
+      - name: Test (macOS/Windows)
+        if: runner.os != 'Linux'
         run: go test ./... -race -timeout 120s
 
   lint:
@@ -44,7 +53,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           # pinned to the release I test with locally, so CI matches what I run
           version: v2.12.2

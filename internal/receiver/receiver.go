@@ -249,7 +249,12 @@ func (r *Receiver) readLoop() {
 	for {
 		msgType, raw, err := protocol.Unmarshal(r.conn)
 		if err != nil {
-			close(r.progressCh)
+			r.mu.Lock()
+			if r.progressCh != nil {
+				close(r.progressCh)
+				r.progressCh = nil
+			}
+			r.mu.Unlock()
 			return
 		}
 
@@ -327,19 +332,15 @@ func (r *Receiver) handleFileOffer(offer protocol.FileOffer) {
 
 func sanitizeFilename(name string) string {
 	name = strings.TrimSpace(name)
-	// Reject characters that are unsafe on some platform before any
-	// platform-dependent processing: backslash is a separator on Windows,
-	// colon is illegal in Windows filenames and drive-relative there.
-	// filepath.Base strips "\\" only on Windows, so stripping first would
-	// make this function behave differently per OS (e.g. "..\\..\\x" would
-	// become "x" on Windows while being rejected elsewhere).
+	// Reject backslash and colon before any platform-dependent processing:
+	// both are problematic on Windows, and removing them first would make
+	// this behave differently per OS.
 	if strings.ContainsAny(name, `\:`) || strings.ContainsRune(name, 0) {
 		return ""
 	}
 	name = filepath.Base(name)
 	name = strings.TrimSpace(name)
-	// Base returns a bare separator for all-separator input ("/" -> "/" on
-	// Unix, "\\" on Windows), so test both separators on the result.
+	// Base returns a bare separator for all-separator input, so test both.
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
 		return ""
 	}
@@ -348,6 +349,18 @@ func sanitizeFilename(name string) string {
 
 func (r *Receiver) OfferChan() <-chan FileOffer {
 	return r.offerCh
+}
+
+// sendProgress pushes a progress update to the UI unless the connection has
+// already been dropped (which closes the channel). Returns false if dropped.
+func (r *Receiver) sendProgress(p transfer.PeerProgress) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.progressCh == nil {
+		return false
+	}
+	r.progressCh <- p
+	return true
 }
 
 func (r *Receiver) handleChunk(chunk protocol.Chunk) {
@@ -362,22 +375,22 @@ func (r *Receiver) handleChunk(chunk protocol.Chunk) {
 	if err := fw.WriteChunk(chunk); err != nil {
 		r.forgetTransfer(chunk.TransferID)
 		_ = fw.Close()
-		r.progressCh <- transfer.PeerProgress{
+		r.sendProgress(transfer.PeerProgress{
 			PeerID:     r.PeerID,
 			TransferID: chunk.TransferID,
 			State:      transfer.StateFailed,
-		}
+		})
 		return
 	}
 
 	offset, total := fw.Progress()
-	r.progressCh <- transfer.PeerProgress{
+	r.sendProgress(transfer.PeerProgress{
 		PeerID:     r.PeerID,
 		TransferID: chunk.TransferID,
 		Offset:     offset,
 		Total:      total,
 		State:      transfer.StateInProgress,
-	}
+	})
 
 	if offset >= total {
 		r.finishTransfer(chunk.TransferID, fw, offset, total)
@@ -399,13 +412,13 @@ func (r *Receiver) finishTransfer(transferID string, fw *transfer.FileWriter, of
 	savePath, folderName := r.forgetTransfer(transferID)
 
 	fail := func() {
-		r.progressCh <- transfer.PeerProgress{
+		r.sendProgress(transfer.PeerProgress{
 			PeerID:     r.PeerID,
 			TransferID: transferID,
 			Offset:     offset,
 			Total:      total,
 			State:      transfer.StateFailed,
-		}
+		})
 	}
 
 	if err := fw.Finish(savePath); err != nil {
@@ -421,13 +434,13 @@ func (r *Receiver) finishTransfer(transferID string, fw *transfer.FileWriter, of
 		_ = os.Remove(savePath)
 	}
 
-	r.progressCh <- transfer.PeerProgress{
+	r.sendProgress(transfer.PeerProgress{
 		PeerID:     r.PeerID,
 		TransferID: transferID,
 		Offset:     offset,
 		Total:      total,
 		State:      transfer.StateCompleted,
-	}
+	})
 }
 
 func (r *Receiver) AcceptTransfer(transferID, savePath string) (string, bool, error) {
@@ -533,6 +546,8 @@ func (r *Receiver) PendingOffers() []FileOffer {
 }
 
 func (r *Receiver) ProgressChan() <-chan transfer.PeerProgress {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.progressCh
 }
 

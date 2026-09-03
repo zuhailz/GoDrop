@@ -130,8 +130,9 @@ is done. `q` quits the receiver, `/exit` closes the room.
 The handshake, in order:
 
 1. The host advertises `_godrop._tcp` over mDNS. The instance name is
-   `godrop-` plus 16 hex chars of `HMAC-SHA256(room key)`, so a room can't
-   even be found without the key.
+   `godrop-` plus 16 hex chars of `HMAC-SHA256(keyed by the room key,
+   over the message "godrop-mdns-salt")`, so a room can't even be found
+   without the key.
 2. Both sides exchange ECDH P-256 public keys and run the shared secret
    through HKDF-SHA256 to get the same 256-bit AES-GCM key.
 3. The host sends a PinChallenge. The receiver answers with an HMAC tag
@@ -244,19 +245,36 @@ Host, press `/` to enter command mode:
 | `/exit`, `/quit` | shut the room down |
 | `[` / `]` | scroll the feed |
 | `c` | copy the room key |
+| `q` / `ctrl+c` | quit |
 
 Receiver:
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` | highlight a pending offer |
+| `↑` / `k` / `↓` / `j` | highlight a pending offer |
 | `a` / `enter` | accept the selected offer |
 | `r` | reject it |
 | `[` / `]` | scroll the feed |
 | `c` | copy the room key |
-| `q` | quit |
+| `q` / `ctrl+c` | quit |
 
 ## Troubleshooting
+
+**Room key copy on Linux.**
+GoDrop tries `wl-copy` (Wayland) or `xclip`/`xsel` (X11) first. On any
+graphical session these may not be installed, but GoDrop falls back to an
+in-process clipboard owner that needs no external tool at all, so copy
+usually just works. If you'd rather have the one-liner path:
+
+```bash
+sudo apt install xclip         # X11 sessions
+sudo apt install wl-clipboard  # Wayland sessions
+```
+
+The last resort is the OSC 52 escape sequence, which some terminals honor
+and others ignore. When a copy can't be confirmed, the feed says so — and
+the room key is always on screen, so selecting and copying it manually
+always works.
 
 **Receiver says "host not found".**
 mDNS needs multicast, and guest Wi-Fi, AP isolation, hotel and corporate

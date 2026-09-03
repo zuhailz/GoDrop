@@ -41,10 +41,6 @@ func FormatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-func FormatProgress(offset, total int64) string {
-	return FormatProgressWithWidth(offset, total, 20)
-}
-
 func FormatProgressWithWidth(offset, total int64, width int) string {
 	percent := float64(0)
 	if total > 0 {

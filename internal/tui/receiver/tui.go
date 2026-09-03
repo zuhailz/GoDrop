@@ -157,14 +157,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.splash = false
-			return m, nil
+			// "c" must copy from the very first keypress; any other key just
+			// dismisses the splash.
+			if !key.Matches(msg, keys.CopyID) {
+				return m, nil
+			}
 		}
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, keys.CopyID):
-			components.CopyToClipboard(m.roomKey)
-			m.feed = append(m.feed, components.FeedItem{Event: true, Text: "Copied room key: " + m.roomKey, Kind: components.FeedSuccess})
+			if components.CopyToClipboard(m.roomKey) {
+				m.feed = append(m.feed, components.FeedItem{Text: "Copied room key: " + m.roomKey, Kind: components.FeedSuccess})
+			} else {
+				m.feed = append(m.feed, components.FeedItem{Text: "Could not confirm copy — select the key: " + m.roomKey, Kind: components.FeedWarning})
+			}
 		case key.Matches(msg, keys.FeedUp):
 			if len(m.feed) > components.MaxFeedVisible && m.feedIdx < len(m.feed)-components.MaxFeedVisible {
 				m.feedIdx++
@@ -196,9 +203,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.transferNames[offer.TransferID] = displayName
 					if renamed {
 						m.feed = append(m.feed, components.FeedItem{
-							Event: true,
-							Text:  fmt.Sprintf("%s already exists, saving as %s", offer.Filename, displayName),
-							Kind:  components.FeedWarning,
+							Text: fmt.Sprintf("%s already exists, saving as %s", offer.Filename, displayName),
+							Kind: components.FeedWarning,
 						})
 					}
 					m.offers = append(m.offers[:m.selectedIdx], m.offers[m.selectedIdx+1:]...)
@@ -243,9 +249,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connected = true
 		m.feed = append(m.feed, components.FeedItem{
-			Event: true,
-			Text:  "connected to room",
-			Kind:  components.FeedSuccess,
+			Text: "connected to room",
+			Kind: components.FeedSuccess,
 		})
 		if m.splashProgress >= 1.0 {
 			m.splash = false
@@ -288,7 +293,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForOffer(m.receiver.OfferChan())
 
 	case SystemEventMsg:
-		m.feed = append(m.feed, components.FeedItem{Event: true, Text: msg.Event.Text, Kind: components.FeedNeutral})
+		m.feed = append(m.feed, components.FeedItem{Text: msg.Event.Text, Kind: components.FeedNeutral})
 		return m, waitForSystemEvent(m.receiver.SystemEventChan())
 	}
 
