@@ -129,6 +129,108 @@ func TestEndToEndTransfer(t *testing.T) {
 	}
 }
 
+func transferFileAndVerify(t *testing.T, fileSize int) {
+	t.Helper()
+	t.Run(fmt.Sprintf("%d_bytes", fileSize), func(t *testing.T) {
+		h, port := startTestHost(t)
+
+		r, err := receiver.NewReceiver("peer-"+t.Name(), "peer-"+t.Name())
+		if err != nil {
+			t.Fatalf("NewReceiver failed: %v", err)
+		}
+		defer func() { _ = r.Close() }()
+
+		if err := r.SetRoomKey(testRoomKey); err != nil {
+			t.Fatalf("SetRoomKey failed: %v", err)
+		}
+
+		if err := r.Connect(fmt.Sprintf("127.0.0.1:%d", port)); err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Build deterministic source data.
+		content := make([]byte, fileSize)
+		rand.New(rand.NewSource(42)).Read(content)
+
+		srcFile := filepath.Join(t.TempDir(), "source.bin")
+		if err := os.WriteFile(srcFile, content, 0644); err != nil {
+			t.Fatalf("failed to write source: %v", err)
+		}
+
+		start := time.Now()
+
+		if _, err := h.OfferFile(srcFile); err != nil {
+			t.Fatalf("OfferFile failed: %v", err)
+		}
+
+		var offers []receiver.FileOffer
+		deadline := time.After(5 * time.Second)
+		for len(offers) == 0 {
+			select {
+			case <-deadline:
+				t.Fatal("timed out waiting for file offer")
+			case offer := <-r.OfferChan():
+				offers = append(offers, offer)
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+
+		destFile := filepath.Join(t.TempDir(), "dest.bin")
+		if _, _, err := r.AcceptTransfer(offers[0].TransferID, destFile); err != nil {
+			t.Fatalf("AcceptTransfer failed: %v", err)
+		}
+
+		completed := false
+		deadline = time.After(30 * time.Second)
+		for !completed {
+			select {
+			case <-deadline:
+				t.Fatal("timed out waiting for transfer completion")
+			case progress := <-r.ProgressChan():
+				if progress.State == transfer.StateCompleted {
+					completed = true
+				}
+				if progress.State == transfer.StateFailed {
+					t.Fatal("transfer failed")
+				}
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+
+		elapsed := time.Since(start)
+
+		received, err := os.ReadFile(destFile)
+		if err != nil {
+			t.Fatalf("failed to read received file: %v", err)
+		}
+		if !bytes.Equal(received, content) {
+			t.Fatalf("received file content does not match source (len=%d, want=%d)", len(received), len(content))
+		}
+
+		throughput := float64(fileSize) / elapsed.Seconds() / (1024 * 1024)
+		t.Logf("✓ %d bytes transferred in %v (%.1f MB/s)", fileSize, elapsed.Round(time.Millisecond), throughput)
+	})
+}
+
+// TestTransferVariousSizes exercises the full host→receiver path with several
+// file sizes to verify byte-exact correctness across single-chunk, multi-chunk,
+// and cross-boundary transfers, while reporting throughput for a large file.
+func TestTransferVariousSizes(t *testing.T) {
+	sizes := []int{
+		100,              // tiny — single small frame
+		1024,             // 1 KiB
+		64 * 1024,        // 64 KiB — fits in one chunk
+		protocol.ChunkSize,      // exactly one chunk boundary
+		protocol.ChunkSize + 100, // crosses chunk boundary
+		10 * 1024 * 1024, // 10 MiB — multi-chunk throughput test
+	}
+	for _, sz := range sizes {
+		transferFileAndVerify(t, sz)
+	}
+}
+
 func TestEndToEndEmptyFileTransfer(t *testing.T) {
 	h, port := startTestHost(t)
 

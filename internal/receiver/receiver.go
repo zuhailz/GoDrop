@@ -1,6 +1,7 @@
 package receiver
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -245,9 +246,19 @@ func (r *Receiver) writeMessage(msgType protocol.MessageType, payload any) error
 	return err
 }
 
+func (r *Receiver) writeRawMessage(msgType protocol.MessageType, data []byte) error {
+	_ = r.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	err := protocol.MarshalRaw(r.conn, msgType, data)
+	_ = r.conn.SetWriteDeadline(time.Time{})
+	return err
+}
+
 func (r *Receiver) readLoop() {
+	// Buffer the socket so the len-prefix + payload reads for each frame
+	// come from memory instead of one syscall per field.
+	br := bufio.NewReaderSize(r.conn, 256*1024)
 	for {
-		msgType, raw, err := protocol.Unmarshal(r.conn)
+		msgType, raw, err := protocol.Unmarshal(br)
 		if err != nil {
 			r.mu.Lock()
 			if r.progressCh != nil {
@@ -260,11 +271,9 @@ func (r *Receiver) readLoop() {
 
 		switch msgType {
 		case protocol.MsgEncryptedPacket:
-			var encPacket protocol.EncryptedPacket
-			if err := json.Unmarshal(raw, &encPacket); err != nil {
-				continue
-			}
-			decrypted, err := crypto.Decrypt(r.SharedSecret, encPacket.Data)
+			// The envelope payload is the raw ciphertext (no JSON wrapper),
+			// so raw is decrypted directly.
+			decrypted, err := crypto.Decrypt(r.SharedSecret, raw)
 			if err != nil {
 				continue
 			}
@@ -288,8 +297,8 @@ func (r *Receiver) handleDecryptedMessage(data []byte) {
 		r.handleFileOffer(offer)
 
 	case protocol.MsgChunk:
-		var chunk protocol.Chunk
-		if err := json.Unmarshal(payload, &chunk); err != nil {
+		chunk, err := transfer.DecodeChunkBlob(payload)
+		if err != nil {
 			return
 		}
 		r.handleChunk(chunk)
@@ -488,8 +497,7 @@ func (r *Receiver) AcceptTransfer(transferID, savePath string) (string, bool, er
 		return "", false, err
 	}
 
-	encPacket := protocol.EncryptedPacket{Data: encrypted}
-	if err := r.writeMessage(protocol.MsgEncryptedPacket, encPacket); err != nil {
+	if err := r.writeRawMessage(protocol.MsgEncryptedPacket, encrypted); err != nil {
 		_ = fw.Close()
 		r.forgetTransfer(transferID)
 		return "", false, err
@@ -530,8 +538,7 @@ func (r *Receiver) RejectTransfer(transferID string) error {
 		return err
 	}
 
-	encPacket := protocol.EncryptedPacket{Data: encrypted}
-	return r.writeMessage(protocol.MsgEncryptedPacket, encPacket)
+	return r.writeRawMessage(protocol.MsgEncryptedPacket, encrypted)
 }
 
 func (r *Receiver) PendingOffers() []FileOffer {

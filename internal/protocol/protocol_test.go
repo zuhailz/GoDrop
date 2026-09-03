@@ -125,7 +125,9 @@ func TestMarshalRaw(t *testing.T) {
 }
 
 func TestChunkSize(t *testing.T) {
-	if ChunkSize != 32*1024 {
-		t.Errorf("ChunkSize = %d, want %d", ChunkSize, 32*1024)
+	// Sanity check: should stay comfortably in the 128 KiB - 1 MiB range so
+	// the per-chunk fixed costs don't dominate a transfer.
+	if ChunkSize < 128*1024 || ChunkSize > 1024*1024 {
+		t.Errorf("ChunkSize = %d, want between %d and %d", ChunkSize, 128*1024, 1024*1024)
 	}
 }

@@ -43,12 +43,12 @@ type Peer struct {
 	writeMu      sync.Mutex
 }
 
-func (p *Peer) writeMessage(msgType protocol.MessageType, payload any) error {
+func (p *Peer) writeRawMessage(msgType protocol.MessageType, data []byte) error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
 	restore := setWriteDeadline(p.Conn)
 	defer restore()
-	return protocol.Marshal(p.Conn, msgType, payload)
+	return protocol.MarshalRaw(p.Conn, msgType, data)
 }
 
 type lockedPeerWriter struct {
@@ -301,11 +301,9 @@ func (h *Host) readLoop(peer *Peer) {
 
 		switch msgType {
 		case protocol.MsgEncryptedPacket:
-			var encPacket protocol.EncryptedPacket
-			if err := json.Unmarshal(raw, &encPacket); err != nil {
-				continue
-			}
-			decrypted, err := crypto.Decrypt(peer.SharedSecret, encPacket.Data)
+			// The envelope payload is the raw ciphertext (no JSON wrapper),
+			// so raw is decrypted directly.
+			decrypted, err := crypto.Decrypt(peer.SharedSecret, raw)
 			if err != nil {
 				continue
 			}
@@ -447,8 +445,7 @@ func (h *Host) OfferFile(filePath string) (string, error) {
 		if err != nil {
 			continue
 		}
-		encPacket := protocol.EncryptedPacket{Data: encrypted}
-		if err := peer.writeMessage(protocol.MsgEncryptedPacket, encPacket); err != nil {
+		if err := peer.writeRawMessage(protocol.MsgEncryptedPacket, encrypted); err != nil {
 			t.SetState(peer.ID, transfer.StateDisconnected)
 			continue
 		}
@@ -496,7 +493,7 @@ func (h *Host) broadcastEvent(text string) {
 			continue
 		}
 		// Best-effort: a failed timeline broadcast must not disrupt transfers.
-		_ = p.writeMessage(protocol.MsgEncryptedPacket, protocol.EncryptedPacket{Data: encrypted})
+		_ = p.writeRawMessage(protocol.MsgEncryptedPacket, encrypted)
 	}
 }
 
