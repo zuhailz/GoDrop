@@ -90,19 +90,36 @@ func TestCopyToClipboardLinuxX11Server(t *testing.T) {
 	}
 
 	want := "godrop-x11-server-clipboard-test"
-	if !copyViaX11Server(want) {
-		t.Fatal("x11 server copy did not confirm ownership")
-	}
 
 	if _, err := exec.LookPath("xclip"); err != nil {
-		t.Log("xclip not installed; ownership confirmed, skipping read-back")
+		t.Log("xclip not installed; testing ownership confirmation only")
+		if !copyViaX11Server(want) {
+			t.Fatal("x11 server copy did not confirm ownership")
+		}
 		return
 	}
-	out, err := exec.Command("xclip", "-selection", "clipboard", "-o").Output()
-	if err != nil {
-		t.Fatalf("xclip read-back failed: %v", err)
-	}
-	if got := strings.TrimSpace(string(out)); got != want {
-		t.Fatalf("clipboard = %q, want %q", got, want)
+
+	// The X11 clipboard is a global, process-shared selection: the host
+	// splash test in another package may write to it concurrently via xclip.
+	// Re-claim and re-read in a loop until our value wins the race.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if !copyViaX11Server(want) {
+			// Selection was grabbed between our claim and confirm; retry.
+			if time.Now().After(deadline) {
+				t.Fatal("x11 server never confirmed ownership after retrying")
+			}
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		out, err := exec.Command("xclip", "-selection", "clipboard", "-o").Output()
+		if err == nil && strings.TrimSpace(string(out)) == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			got := strings.TrimSpace(string(out))
+			t.Fatalf("clipboard kept changing, never observed %q (last %q)", want, got)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
