@@ -73,10 +73,12 @@ type model struct {
 	input     string
 	feedIdx   int
 
-	browserMode bool
-	browserDir  string
-	files       []string
-	browserIdx  int
+	browserMode   bool
+	browserDir    string
+	files         []string
+	browserIdx    int
+	browserScroll int
+	browserPage   int
 }
 
 func NewModel(h *host.Host) model {
@@ -224,6 +226,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.browserDir = msg.Dir
 		m.files = sortedEntries(msg.Entries)
 		m.browserIdx = 0
+		m.browserScroll = 0
 	}
 
 	return m, nil
@@ -364,9 +367,19 @@ func (m model) handleBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.browserIdx > 0 {
 			m.browserIdx--
 		}
+		if m.browserIdx < m.browserScroll {
+			m.browserScroll = m.browserIdx
+		}
 	case tea.KeyDown:
 		if m.browserIdx < len(m.files)-1 {
 			m.browserIdx++
+		}
+		page := m.browserPage
+		if page <= 0 {
+			page = components.MaxFeedVisible
+		}
+		if m.browserIdx >= m.browserScroll+page {
+			m.browserScroll++
 		}
 	case tea.KeyBackspace:
 		parent := filepath.Dir(m.browserDir)
@@ -572,7 +585,46 @@ func (m *model) renderBrowser(width int) string {
 		m.browserIdx = 0
 	}
 
-	for i, f := range m.files {
+	// Reserve room for the panel chrome (title/divider) plus the trailing
+	// help line so the list always fits the visible terminal height. When
+	// no height is known yet, fall back to a fixed page.
+	page := m.browserPage
+	if page <= 0 {
+		page = components.MaxFeedVisible
+	}
+	visible := page
+	if m.height > 0 {
+		// 1 title + 1 divider + 1 gap + help line + margins
+		visible = m.height - 8
+		if visible < 1 {
+			visible = 1
+		}
+	}
+	if visible > len(m.files) {
+		visible = len(m.files)
+	}
+
+	// Clamp the scroll offset so the window and its cursor stay inside the list.
+	maxScroll := len(m.files) - visible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.browserIdx < m.browserScroll {
+		m.browserScroll = m.browserIdx
+	}
+	if m.browserIdx >= m.browserScroll+visible {
+		m.browserScroll = m.browserIdx - visible + 1
+	}
+	if m.browserScroll < 0 {
+		m.browserScroll = 0
+	}
+	if m.browserScroll > maxScroll {
+		m.browserScroll = maxScroll
+	}
+	m.browserPage = visible
+
+	for i := m.browserScroll; i < m.browserScroll+visible && i < len(m.files); i++ {
+		f := m.files[i]
 		display := f
 		path := filepath.Join(m.browserDir, display)
 		info, err := os.Stat(path)
@@ -589,6 +641,10 @@ func (m *model) renderBrowser(width int) string {
 		body.WriteString("\n")
 	}
 
+	if m.browserScroll > 0 {
+		body.WriteString(styles.InfoStyle.Render(fmt.Sprintf("  ▴ %d more…", m.browserScroll)))
+		body.WriteString("\n")
+	}
 	body.WriteString("\n")
 	body.WriteString(styles.HelpStyle.Render("  ↑/↓: navigate  •  enter: open  •  s: send file/folder  •  backspace: up  •  esc: close"))
 
