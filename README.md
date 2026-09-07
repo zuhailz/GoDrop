@@ -141,7 +141,7 @@ The handshake, in order:
    host) and the connection is dropped.
 4. The receiver sends a PeerJoin with its ID and display name.
 5. The host offers files; the receiver accepts or rejects each one.
-6. Accepted transfers stream as 32 KiB chunks inside encrypted envelopes.
+6. Accepted transfers stream as 256 KiB chunks inside encrypted envelopes.
    Each chunk carries a CRC32 checksum and an offset, which the receiver
    clamps to the advertised file size before writing.
 7. Joins, leaves, offers, accepts and completions all show up in a shared
@@ -149,9 +149,13 @@ The handshake, in order:
 
 ### Wire format
 
-Every frame is a 1-byte message type, a 4-byte big-endian length, and a
-JSON payload. Control messages travel inside EncryptedPacket envelopes so
-only the two endpoints can read them.
+Every frame starts with a 1-byte message type and a 4-byte big-endian
+length, followed by the payload. Control messages and the handshake use a
+JSON payload, while the data path avoids JSON entirely for speed: chunk
+bodies are raw binary and encrypted envelopes carry the raw ciphertext with
+no extra wrapper. Whatever the payload, control messages travel inside
+EncryptedPacket envelopes end to end so only the two endpoints can read
+them.
 
 | Type | Message | Direction | Carries |
 |---:|---|---|---|
@@ -159,9 +163,9 @@ only the two endpoints can read them.
 | 1 | FileOffer | host → peers | transfer ID, filename, size, folder flag |
 | 2 | FileAccept | peer → host | transfer ID |
 | 3 | FileReject | peer → host | transfer ID |
-| 4 | Chunk | host → peer | offset, 32 KiB payload, CRC32 |
+| 4 | Chunk | host → peer | offset, 256 KiB payload, CRC32 (raw binary) |
 | 5 | PeerJoin | peer → host | peer ID, display name |
-| 7 | EncryptedPacket | both | encrypted inner message |
+| 7 | EncryptedPacket | both | raw encrypted inner message |
 | 9 | SystemEvent | host → all | shared feed entries |
 | 10 | PinResponse | both | HMAC tag |
 | 11 | PinChallenge | host → peer | starts the auth exchange |
@@ -316,7 +320,9 @@ reflected and forged auth tags (both must fail).
 
 ## Roadmap
 
-- [ ] v0.1.0 tag, served by the Go module proxy
+- [x] v0.1.0 tag, served by the Go module proxy
+- [x] Raw binary chunk framing and per-chunk crypto for high-throughput LAN
+      transfers
 - [ ] Prebuilt binaries and a Homebrew tap, if anyone actually wants them
 - [ ] Transfer resume
 - [ ] Receiver-to-host acks so host-side bars show confirmed delivery
